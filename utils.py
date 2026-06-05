@@ -4,12 +4,12 @@ from typing import Any
 
 def debug_print(label: str, data: Any) -> None:
     """
-    Safely inspects and pretty-prints any Python object, 
+    Safely inspects and pretty-prints any Python object,
     JSON string, or raw byte body.
     """
     indent = "    "
     print(f"\n=== DEBUG: {label} ===")
-    
+
     # 1. Handle Empty or None values
     if data is None or data == "":
         print(f"{indent}[Empty or None]")
@@ -38,7 +38,7 @@ def debug_print(label: str, data: Any) -> None:
                 return
             except (ValueError, TypeError):
                 pass # Not valid JSON after all, move to fallback
-        
+
         # Regular string fallback
         print("\n".join(f"{indent}{line}" for line in data.splitlines()))
         return
@@ -51,3 +51,19 @@ def debug_print(label: str, data: Any) -> None:
     except Exception as e:
         # Absolute safety net fallback
         print(f"{indent}[Fallback to __str__]: {str(data)}")
+
+from okta_client.authfoundation.oauth2.client import OAuth2ClientListener
+
+class Debugger(OAuth2ClientListener):
+    print("\n" + "=" * 80)
+    print("DEBUG ENABLED")
+    print("=" * 80)
+    def will_send(self, client, request):
+        debug_print(f"OAuth Request -> {request.method} {request.url}", request.body)
+
+    def did_send(self, client, request, response):
+        debug_print(f"OAuth Response Status", response.status_code)
+        debug_print(f"OAuth Response Body", response.result)
+
+    def did_send_error(self, client, request, error):
+        debug_print(f"OAuth Error", error)
