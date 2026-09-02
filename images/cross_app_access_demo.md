@@ -92,8 +92,8 @@ sequenceDiagram
 
 	rect rgb(170, 0, 255)
 		Note right of C: Step 2
-			C-->>A: Request + User Access Token
-			A->>OAS: Exchange User Access Token for ID-JAG
+			C-->>A: Request + User ID Token
+			A->>OAS: Exchange User ID Token for ID-JAG
 			OAS-->>A: ID-JAG Token
 	end
 
