@@ -2,7 +2,7 @@ import json
 import pprint
 from typing import Any
 import builtins
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 from enum import Enum
 import re
 
@@ -121,36 +121,72 @@ class Debugger(OAuth2ClientListener):
 
 REQUIRED_KEYS = [
     "OKTA_DOMAIN",
+    "PRINCIPAL_ID",
     "REDIRECT_URI",
-    "RESOURCE_AUTHZ_SERVER_ID"
+    "RESOURCE_ISSUER",
+    "RESOURCE_SERVER_AUDIENCE"
 ]
 
+KNOWN_URL_KEYS = {
+    "REDIRECT_URI",
+    "RESOURCE_ISSUER",
+    "RESOURCE_URI",
+    "CLIENT_ISSUER",
+    "ISSUER",
+}
+
+def _is_valid_url(val: Any) -> bool:
+    if not isinstance(val, str) or not val.strip():
+        return False
+    try:
+        parsed = urlparse(val.strip())
+        return bool(parsed.scheme in ("http", "https") and parsed.netloc)
+    except Exception:
+        return False
+
 def validate_config(config: dict, notebook_type: str = "xaa"):
-    _notebook_type = NotebookType(notebook_type)
-    required_keys = list(REQUIRED_KEYS)
+    _notebook_type = NotebookType(notebook_type);
+    required_keys = list(REQUIRED_KEYS);
+
+    print("⏳ Validating configuration...");
+
+
+    if 'PRINCIPAL_SECRET' not in config or not config.get('PRINCIPAL_SECRET'):
+
+        required_keys.append("PRINCIPAL_PRIVATE_JWK");
+    else:
+        print("  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!");
+
+        required_keys.append("PRINCIPAL_SECRET");
+
 
     if _notebook_type == NotebookType.XAA:
         pass
     elif _notebook_type == NotebookType.AGENT_REGISTRATION:
         pass
     elif _notebook_type == NotebookType.STS:
-        pass
+        required_keys.append("RESOURCE_INDICATOR");
+
+        if 'RESOURCE_ISSUER' in REQUIRED_KEYS:
+            required_keys.remove("RESOURCE_ISSUER");
+
+        if 'RESOURCE_SERVER_AUDIENCE' in REQUIRED_KEYS:
+            required_keys.remove("RESOURCE_SERVER_AUDIENCE");
+
     elif _notebook_type == NotebookType.AUTHZ:
         required_keys.extend([
             "CLIENT_AUTHZ_SERVER_ID",
             "RESOURCE_URI",
-            "PRINCIPAL_ID",
-            "CLIENT_ID",
-            "RESOURCE_SERVER_AUDIENCE"
+            "CLIENT_ID"
         ]);
 
         if 'CLIENT_SECRET' not in config or not config.get('CLIENT_SECRET'):
+
             required_keys.append("CLIENT_PRIVATE_JWK");
         else:
-            required_keys.append("CLIENT_SECRET");
+            print("  ⚠️ CLIENT configured for client secret. This is not a recommended method of authentication!");
 
-        if 'PRINCIPAL_SECRET' not in config or not config.get('PRINCIPAL_SECRET'):
-            required_keys.append("PRINCIPAL_PRIVATE_JWK");
+            required_keys.append("CLIENT_SECRET");
 
     elif _notebook_type == NotebookType.A2A:
         pass
@@ -159,18 +195,27 @@ def validate_config(config: dict, notebook_type: str = "xaa"):
     for key in required_keys:
         value = config.get(key);
 
-        if key not in config or not value:
-            raise ValueError(f"Missing required configuration key: {key}")
-
-        # Validate OKTA_DOMAIN format
-        okta_domain_regex = r"^https:\/\/[a-zA-Z0-9-]+\.(okta|oktapreview|okta-emea)\.com$"
-
-        if key == "OKTA_DOMAIN" and not re.match(okta_domain_regex, value):
-            raise ValueError(
-                f"Invalid OKTA_DOMAIN: '{value}'. "
-                "Expected format: 'https://<your-domain>.<okta|oktapreview|okta-emea>.com'"
-            )
-
         # Validate JWK structure if present
         if 'JWK' in key and (not isinstance(value, dict) or not value.get('kid')):
-            raise ValueError(f"{key} must be a dictionary containing at least a 'kid'")
+            raise ValueError(f"{key} must be a dictionary containing at least a 'kid'");
+
+        # Validate OKTA_DOMAIN format
+        okta_domain_regex = r"^https:\/\/[a-zA-Z0-9-]+\.(okta|oktapreview|okta-emea)\.com$";
+
+        if key == "OKTA_DOMAIN":
+            if not isinstance(value, str) or not re.match(okta_domain_regex, value):
+                raise ValueError(
+                    f"Invalid OKTA_DOMAIN: '{value}'. "
+                    "Expected format: 'https://<your-domain>.<okta|oktapreview|okta-emea>.com'"
+                )
+
+        elif (key in KNOWN_URL_KEYS or key.endswith(("_URI", "_URL", "_ISSUER"))) and not _is_valid_url(value):
+            raise ValueError(
+                f"Invalid URL for configuration key '{key}': '{value}'. "
+                "Expected a valid HTTP/HTTPS URL (e.g., 'https://...')"
+            );
+
+        if key not in config or not value:
+            raise ValueError(f"Missing required configuration key: {key}");
+
+        print(f"  ✅ {key}");
