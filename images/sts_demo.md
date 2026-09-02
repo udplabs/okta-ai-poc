@@ -16,53 +16,61 @@ The following config is recommended:
 ## Root Diagram
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant U as User
-    participant C as Client App
-    participant CAS as Okta Client Authz Server
-    participant A as Agent Principal
-    participant OAS as Okta Org Authz Server
-    participant RAS as Okta Resource Authz Server
-    participant R as Resource
+	autonumber
+	participant U as User
+	participant C as Client App
+	participant A as Agent Principal
+	participant OAS as Okta Org Authz Server
+	participant RAS as Resource Authz Server
+	participant R as Resource
 
 	rect rgb(0, 128, 255)
 		Note right of U: Step 1
 			U->>C: Authenticate via browser
-			C->>CAS: Authorization Code + Token request
-			CAS-->>C: User Access Token
+			C->>OAS: Authorization Code + Token request
+			OAS-->>C: User Access Token
 	end
 
 	rect rgb(170, 0, 255)
 		Note right of C: Step 2
-			C-->>A: Request + User Access Token
-			A->>OAS: Exchange User Access Token for ID-JAG
-			OAS-->>A: ID-JAG Token
-	end
+			C-->>A: Request + User ID Token
+			A->>OAS: Exchange User ID Token for Resource Token
+            OAS->>OAS: Get resource token
 
-	rect rgb(0, 156, 112)
-		Note left of A: Step 3
-		opt
-			A->>A: Verify ID-JAG Token
-		end
-	end
+            alt access token invalid
+                alt valid refresh token
+                    rect rgb(255, 0, 119)
+                    Note left of OAS: Scenario 1
+                    OAS->>RAS: Refresh access token
+                    RAS-->>OAS: Access Token + Refresh Token
+                    OAS->>OAS: Store tokens
+                    end
+                else authentication required
+                rect rgb(90, 49, 0)
+                    Note right of U: Scenario 2
+                    OAS-->>A: 401 + Interaction URI
+                    A-->>C: 401 + Interaction URI
+                    C-->>U: Please authenticate
+                    U->>C: Authenticate + Consent
+                    C->>OAS: Authenticate + Consent
+                    OAS->>RAS: Single Sign On
+                    RAS-->>OAS: Access Token + Refresh Token
+                    OAS->>OAS: Store tokens
+                end
+                end
 
-	rect rgb(90, 49, 0)
-		Note right of A: Step 4
-		A->>RAS: Exchange ID-JAG for Resource Access Token
-		RAS-->>A: Resource Access Token
-	end
-
-	rect rgb(255, 0, 119)
-		Note left of A: Step 5
-		opt
-			A->>A: Verify Resource Access Token
-			Note right of A: This verification would normally be done by the resource.
-		end
+            else
+                rect rgb(0, 156, 112)
+                Note right of A: Scenario 3
+                OAS-->>A: User Access Token
+                end
+            end
 	end
 
 	rect rgb(38, 73, 109)
-		Note right of A: Step 6
-		A-->>R: Request to Resource + Access Token
+		Note right of A: Step 3
+		A->>R: Request to Resource + Access Token
+        R-->>A: Result
 	end
 ```
 
@@ -72,13 +80,13 @@ sequenceDiagram
     autonumber
     participant U as User
     participant C as Client App
-    participant CAS as Okta Client Authz Server
+    participant OAS as Okta Authz Server
 
 	rect rgb(0, 128, 255)
 		Note right of U: Step 1
 			U->>C: Authenticate via browser
-			C->>CAS: Authorization Code + Token request
-			CAS-->>C: User Access Token
+			C->>OAS: Authorization Code + Token request
+			OAS-->>C: User Access Token
 	end
 
 ```
@@ -86,63 +94,63 @@ sequenceDiagram
 ## Step 2
 ```mermaid
 sequenceDiagram
-    autonumber 4
-
+	autonumber 4
+	participant U as User
 	participant C as Client App
-    participant A as Agent Principal
-    participant OAS as Okta Org Authz Server
+	participant A as Agent Principal
+	participant OAS as Okta Org Authz Server
+	participant RAS as Resource Authz Server
 
 	rect rgb(170, 0, 255)
 		Note right of C: Step 2
-			C-->>A: Request + User Access Token
-			A->>OAS: Exchange User Access Token for ID-JAG
-			OAS-->>A: ID-JAG Token
-	end
+			C-->>A: Request + User ID Token
+			A->>OAS: Exchange User ID Token for Resource Token
+            OAS->>OAS: Get resource token
 
+            alt access token invalid
+                alt valid refresh token
+                    rect rgb(255, 0, 119)
+                    Note left of OAS: Scenario 1
+                    OAS->>RAS: Refresh access token
+                    RAS-->>OAS: Access Token + Refresh Token
+                    OAS->>OAS: Store tokens
+                    end
+                else authentication required
+                rect rgb(90, 49, 0)
+                    Note right of U: Scenario 2
+                    OAS-->>A: 401 + Interaction URI
+                    A-->>C: 401 + Interaction URI
+                    C-->>U: Please authenticate
+                    U->>C: Authenticate + Consent
+                    C->>OAS: Authenticate + Consent
+                    OAS->>RAS: Single Sign On
+                    RAS-->>OAS: Access Token + Refresh Token
+                    OAS->>OAS: Store tokens
+                end
+                end
+
+            else
+                rect rgb(0, 156, 112)
+                Note right of A: Scenario 3
+                OAS-->>A: User Access Token
+                end
+            end
+
+	end
 ```
 
 ## Step 3
 ```mermaid
 sequenceDiagram
-    autonumber 7
-    participant A as Agent Principal
+	autonumber 19
+	participant A as Agent Principal
+	participant OAS as Okta Org Authz Server
+	participant RAS as Resource Authz Server
+	participant R as Resource
 
-	rect rgb(0, 156, 112)
-		Note left of A: Step 3
-		opt
-			A->>A: Verify ID-JAG Token
-		end
+	rect rgb(38, 73, 109)
+		Note right of A: Step 3
+		A->>R: Request to Resource + Access Token
+        R-->>A: Result
 	end
-
-```
-
-## Step 4
-```mermaid
-sequenceDiagram
-    autonumber 8
-    participant A as Agent Principal
-	participant RAS as Okta Resource Authz Server
-
-	rect rgb(90, 49, 0)
-		Note right of A: Step 4
-		A->>RAS: Exchange ID-JAG for Resource Access Token
-		RAS-->>A: Resource Access Token
-	end
-```
-
-## Step 5
-```mermaid
-sequenceDiagram
-    autonumber 10
-
-    participant A as Agent Principal
-
-	rect rgb(255, 0, 119)
-		Note left of A: Step 5
-		opt
-			A->>A: Verify Resource Access Token
-			Note right of A: This verification would normally be done by the resource.
-		end
-	end
-
 ```
