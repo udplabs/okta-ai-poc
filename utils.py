@@ -218,4 +218,4 @@ def validate_config(config: dict, notebook_type: str = "xaa"):
         if key not in config or not value:
             raise ValueError(f"Missing required configuration key: {key}");
 
-        print(f"  ✅ {key}");
+        print(f"  ☑️ {key}");
