@@ -5,6 +5,37 @@ import builtins
 from urllib.parse import parse_qs, urlparse
 from enum import Enum
 import re
+from IPython.display import HTML, display
+
+def render_button(href: str, url: str | None = None, instruction: str = "", cta: str = "Click Here to Authenticate") -> None:
+
+    display(HTML(f"""
+        <div style="margin: 20px 0; color: red; padding: 15px; background-color: #ffcdcd; border-left: 4px solid #ff0000; border-radius: 4px;">
+            <strong>Instructions:</strong>
+            {instruction if instruction else f"""
+            <ol style="margin: 10px 0 0 0;">
+                <li>Click the button below to open the authorization URL in a new tab</li>
+                <li>Sign in with your Okta credentials</li>
+                <li>After authentication, you'll be redirected to: <code>{url}</code></li>
+                <li>Copy the <strong>code</strong> parameter from the URL (it will look like: <code>?code=ABC123...</code>)</li>
+                <li>Paste the code in the next cell to exchange it for tokens</li>
+            </ol>
+            """}
+        </div>
+        <div style="margin: 20px 0;">
+            <a href="{href}" target="_blank" style="
+                display: inline-block;
+                padding: 15px 30px;
+                background-color: #007bff;
+                color: white;
+                text-decoration: none;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 16px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            ">{cta}</a>
+        </div>
+        """))
 
 class NotebookType(Enum):
     XAA = "cross_app_access"
@@ -151,26 +182,51 @@ def validate_config(config: dict, notebook_type: str = "xaa"):
     print("⏳ Validating configuration...");
 
 
-    if 'PRINCIPAL_SECRET' not in config or not config.get('PRINCIPAL_SECRET'):
 
-        required_keys.append("PRINCIPAL_PRIVATE_JWK");
-    else:
-        print("  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!");
+    if _notebook_type == NotebookType.XAA or _notebook_type == NotebookType.AUTHZ:
 
-        required_keys.append("PRINCIPAL_SECRET");
+        if 'PRINCIPAL_SECRET' not in config or not config.get('PRINCIPAL_SECRET'):
 
+            required_keys.append("PRINCIPAL_PRIVATE_JWK");
+        else:
+            print("  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!");
 
-    if _notebook_type == NotebookType.XAA:
-        pass
+            required_keys.append("PRINCIPAL_SECRET");
+
     elif _notebook_type == NotebookType.AGENT_REGISTRATION:
         pass
+    elif _notebook_type == NotebookType.A2A:
+
+        required_keys.remove("PRINCIPAL_ID");
+        required_keys.extend([
+            "PRINCIPAL_A_ID",
+            "PRINCIPAL_A_SCOPES",
+            # "PRINCIPAL_B_ID"
+        ]);
+
+        if 'PRINCIPAL_A_SECRET' not in config or not config.get('PRINCIPAL_A_SECRET'):
+
+            required_keys.append("PRINCIPAL_A_PRIVATE_JWK");
+        else:
+            print("  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!");
+
+            required_keys.append("PRINCIPAL_A_SECRET");
+
+        # if 'PRINCIPAL_B_SECRET' not in config or not config.get('PRINCIPAL_B_SECRET'):
+
+        #     required_keys.append("PRINCIPAL_B_PRIVATE_JWK");
+        # else:
+        #     print("  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!");
+
+        #     required_keys.append("PRINCIPAL_B_SECRET");
+
     elif _notebook_type == NotebookType.STS:
         required_keys.append("RESOURCE_INDICATOR");
 
-        if 'RESOURCE_ISSUER' in REQUIRED_KEYS:
+        if 'RESOURCE_ISSUER' in required_keys:
             required_keys.remove("RESOURCE_ISSUER");
 
-        if 'RESOURCE_SERVER_AUDIENCE' in REQUIRED_KEYS:
+        if 'RESOURCE_SERVER_AUDIENCE' in required_keys:
             required_keys.remove("RESOURCE_SERVER_AUDIENCE");
 
     elif _notebook_type == NotebookType.AUTHZ:
@@ -219,3 +275,44 @@ def validate_config(config: dict, notebook_type: str = "xaa"):
             raise ValueError(f"Missing required configuration key: {key}");
 
         print(f"  ☑️ {key}");
+
+def _auth_method(private_jwk: dict | None, client_secret: str | None) -> str:
+    if private_jwk and isinstance(private_jwk, dict) and private_jwk.get("kid"):
+        return f"Private Key KID: {private_jwk.get('kid')}"
+    elif client_secret:
+        return f"Client Secret: {'*' * 9}..."
+    else:
+        return "⚠️ NONE — configure a JWK or secret"
+
+def a2a_config_out(config: dict) -> None:
+    """
+    Outputs the A2A configuration in a structured format to remove unnecessary code from the learning notebook.
+    """
+    print("\n✅ All configuration variables validated successfully!")
+
+    print("Delegation chain:")
+    print(f"   User → {config.get('PRINCIPAL_A_ID') or '?'} (Agent A) → {config.get('PRINCIPAL_B_ID') or '?'} (Agent B) → {config.get('RESOURCE_SERVER_AUDIENCE') or '?'}\n")
+
+    print(f"Okta Domain: {config.get('OKTA_DOMAIN')}")
+
+    print("Client (App)")
+    print(f"   Client ID:  {config.get('CLIENT_ID')}")
+    print(f"   Issuer:     {config.get('CLIENT_ISSUER')}")
+    print(f"   Scopes:     {config.get('CLIENT_SCOPES')}")
+    print(f"   Auth:       {_auth_method(config.get('CLIENT_PRIVATE_JWK'), config.get('CLIENT_SECRET'))}\n")
+
+    print("Agent A  (acting on behalf of the user)")
+    print(f"   Principal:  {config.get('PRINCIPAL_A_ID')}")
+    print(f"   Audience:   {config.get('PRINCIPAL_A_RESOURCE_URI')}")
+    print(f"   Scopes:     {config.get('PRINCIPAL_A_SCOPES')}")
+    print(f"   Auth:       {_auth_method(config.get('PRINCIPAL_A_PRIVATE_JWK'), '')}\n")
+
+    print("Agent B  (acting on behalf of Agent A)")
+    print(f"   Principal:  {config.get('PRINCIPAL_B_ID')}")
+    print(f"   Audience:   {config.get('PRINCIPAL_B_RESOURCE_URI')}")
+    print(f"   Scopes:     {config.get('PRINCIPAL_B_SCOPES')}")
+    print(f"   Auth:       {_auth_method(config.get('PRINCIPAL_B_PRIVATE_JWK'), config.get('PRINCIPAL_B_SECRET'))}\n")
+
+    print("Resource")
+    print(f"   Issuer:     {config.get('RESOURCE_ISSUER')}")
+    print(f"   Audience:   {config.get('RESOURCE_SERVER_AUDIENCE')}")
