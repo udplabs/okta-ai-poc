@@ -1,2 +1,5 @@
 __pycache__/**/*
 /__pycache__
+
+# utils.py fetched at runtime by notebooks running in Google Colab
+colabs/utils.py
