@@ -1,0 +1,396 @@
+{
+  "info": {
+    "_postman_id": "a6da0bba-35fe-44f4-a48f-186ec9b81cae",
+    "name": "21 DPoP HI OPA \\w Pub/Priv",
+    "description": "## DPoP HI OPA — Public/Private Key Client Authentication\n\nThis collection demonstrates a **DPoP (Demonstrating Proof of Possession)**-protected OAuth 2.0 authorization code flow against an **Okta authorization server**, using a **public/private key pair (RS256)** for both client authentication (via `private_key_jwt`) and DPoP proof generation.\n\nIt covers the full end-to-end sequence from authorization through to obtaining an **OPA vaulted token** via token exchange, including the server-required **DPoP nonce** retry pattern.\n\n---\n\n### Flow Overview\n\n| Step | Request | Purpose |\n|------|---------|---------|\n| 1 | **01 Authorize** | Initiates the authorization code flow with PKCE (`S256`). Redirects the agent client to the Okta authorization endpoint. |\n| 2 | **02 Token** | Exchanges the authorization code for tokens. Sends an initial DPoP proof (RS256-signed `dpop+jwt`) and a `private_key_jwt` client assertion. Expects a `400` response containing a `dpop-nonce` from the server. |\n| 3 | **03 Token with DPoP Nonce** | Retries the token request with a new DPoP proof that includes the server-issued `nonce` claim. On success, stores the resulting `id_token` as the subject token for the next stage. |\n| 4 | **04 Get OPA Vaulted Token** | Performs an OAuth 2.0 token exchange (`urn:ietf:params:oauth:grant-type:token-exchange`) to obtain an Okta vaulted secret token (`urn:okta:params:oauth:token-type:vaulted-secret`), using a fresh DPoP proof. Expects a `400` response containing a new `dpop-nonce`. |\n| 5 | **05 Get OPA Vaulted Token with DPoP Nonce** | Retries the token exchange with a DPoP proof that includes the nonce from step 4, completing the vaulted token acquisition. |\n\n---\n\n### Key Mechanics\n\n- **DPoP proof generation**: Each request dynamically generates an RS256-signed `dpop+jwt` in the pre-request script using the `jsrsasign` library (cached in globals). The RSA key pair is generated once and persisted in environment variables (`_dpop_privatekey`, `_dpop_pubkey`).\n- **Client authentication**: Uses `private_key_jwt` (`urn:ietf:params:oauth:client-assertion-type:jwt-bearer`) signed with the agent's registered private key (`dpop-agent-pvt-key-json`).\n- **PKCE**: The authorization request uses `code_challenge_method=S256` with pre-computed `code_challenge` and `code_verifier` environment variables.\n- **DPoP nonce handling**: Steps 2 and 4 intentionally trigger a `400` response to capture the server-issued `dpop-nonce`, which is then embedded in the subsequent DPoP proof.\n- **Token exchange**: Steps 4–5 use the `id_token` from step 3 as the subject token to obtain an OPA-scoped vaulted secret, bound to a specific resource (`dpop-opa-pub-orn`).\n\n---\n\n### Prerequisites\n\nEnsure the following environment variables are set in the active environment before running:\n\n- `url` — Okta org base URL\n- `agent-authZ-server-ID` — Authorization server ID\n- `dpop_agent-pub-client_id` — Client ID for the DPoP public/private key client\n- `dpop-agent-pvt-key-json` — Agent's private key in JWK format (for client assertions)\n- `scope`, `redirect_uri`, `code_challenge`, `code_verifier` — PKCE and scope parameters\n- `dpop-opa-pub-orn` — OPA resource identifier (ORN) for the vaulted token",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "16313791",
+    "_collection_link": "https://go.postman.co/collection/16313791-a6da0bba-35fe-44f4-a48f-186ec9b81cae?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "01 Authorize",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/authorize?client_id={{dpop_agent-pub-client_id}}&response_type=code&response_mode=query&scope={{scope}}&redirect_uri={{redirect_uri}}&state={{$guid}}&nonce={{$guid}}&code_challenge_method=S256&code_challenge={{code_challenge}}",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "authorize"
+          ],
+          "query": [
+            {
+              "key": "client_id",
+              "value": "{{dpop_agent-pub-client_id}}"
+            },
+            {
+              "key": "response_type",
+              "value": "code"
+            },
+            {
+              "key": "response_mode",
+              "value": "query"
+            },
+            {
+              "key": "scope",
+              "value": "{{scope}}"
+            },
+            {
+              "key": "redirect_uri",
+              "value": "{{redirect_uri}}"
+            },
+            {
+              "key": "state",
+              "value": "{{$guid}}"
+            },
+            {
+              "key": "nonce",
+              "value": "{{$guid}}"
+            },
+            {
+              "key": "code_challenge_method",
+              "value": "S256"
+            },
+            {
+              "key": "code_challenge",
+              "value": "{{code_challenge}}"
+            }
+          ]
+        },
+        "description": "Initiates the **OAuth 2.0 Authorization Code flow with PKCE** against the Okta authorization server.\n\nThis is **Step 1** of the DPoP HI OPA w/ Pub/Priv flow. The agent client is redirected to the Okta `/authorize` endpoint to obtain an authorization code, which is then exchanged for tokens in the subsequent **02 Token** request.\n\n---\n\n### Parameters\n\n| Parameter | Value | Description |\n|-----------|-------|-------------|\n| `client_id` | `{{dpop_agent-pub-client_id}}` | The public/private key client registered in Okta. |\n| `response_type` | `code` | Requests an authorization code. |\n| `response_mode` | `query` | Returns the code as a query parameter in the redirect URI. |\n| `scope` | `{{scope}}` | The OAuth 2.0 scopes being requested. |\n| `redirect_uri` | `{{redirect_uri}}` | The URI Okta redirects to after authorization. Must be pre-registered on the client. |\n| `state` | `{{$guid}}` | A randomly generated value used to prevent CSRF attacks. |\n| `nonce` | `{{$guid}}` | A randomly generated value used to associate the session and mitigate replay attacks. |\n| `code_challenge_method` | `S256` | PKCE challenge method — SHA-256 hash of the code verifier. |\n| `code_challenge` | `{{code_challenge}}` | The PKCE code challenge derived from `{{code_verifier}}`. Generated in the pre-request script of the collection. |\n\n---\n\n### Expected Outcome\n\nA successful authorization redirects the browser/agent to `{{redirect_uri}}` with an `code` query parameter. Copy the returned `code` value into the `_auth_code` environment variable before proceeding to **02 Token**.\n\n---\n\n### Notes\n\n- This request is a browser-redirect step and is not sent directly via Postman's HTTP client. Open the URL in a browser to complete the authorization.\n- The `code_challenge` must be computed from the `code_verifier` stored in `{{code_verifier}}` before this request is made.\n- `state` and `nonce` are dynamically generated per request using Postman's `{{$guid}}` dynamic variable."
+      },
+      "response": []
+    },
+    {
+      "name": "02 Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Token response with dpop_nonce\", function () {\n    pm.response.to.have.status(400);\n    try {\n        const dpop_nonce = pm.response.headers.get(\"dpop-nonce\");\n        pm.environment.set(\"_dpop-opa-pub-nonce\", dpop_nonce);\n    } catch (e) {\n        console.log(\"Error parsing response:\", e);\n    }\n});"
+            ]
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\nconst jsrsasignUrl = \"https://kjur.github.io/jsrsasign/jsrsasign-all-min.js\";\n\n// Load library (cached in globals for performance)\nif (!pm.globals.has(\"jsrsasign_cached\")) {\n    console.log(\"Loading jsrsasign library...\");\n    pm.sendRequest(jsrsasignUrl, function (err, res) {\n        if (err) {\n            console.error(\"Failed to load jsrsasign:\", err);\n            throw new Error(\"Cannot load jsrsasign library\");\n        }\n        pm.globals.set(\"jsrsasign_cached\", res.text());\n        console.log(\"Library loaded successfully\");\n        generateDpopJwt();\n    });\n} else {\n    generateDpopJwt();\n}\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // -----------------------------------------\n    // 1. Generate RSA Key Pair (2048-bit)\n    // -----------------------------------------\n\n    if (!pm.environment.has(\"_dpop_privatekey\")){\n        console.log(\"Generating RSA key pair...\");\n        const keypair = KEYUTIL.generateKeypair(\"RSA\", 2048);\n        const privateKey = keypair.prvKeyObj;\n        const publicKey = keypair.pubKeyObj;\n\n        // -----------------------------------------\n        // 2. Export keys in required formats\n        // -----------------------------------------\n        // Private key in PEM format\n        const privatePem = KEYUTIL.getPEM(privateKey, \"PKCS8PRV\");\n\n        // Public key in JWK format\n        const publicJwk = KEYUTIL.getJWKFromKey(publicKey);\n\n        pm.environment.set(\"_dpop_privatekey\", privatePem);\n        pm.environment.set(\"_dpop_pubkey\", JSON.stringify(publicJwk));   \n    }\n\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // -----------------------------------------\n    // 3. Store keys in environment variables\n    // -----------------------------------------\n\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/' + pm.environment.get('agent-authZ-server-ID') + '/v1/token';\n\n    // -----------------------------------------\n    // 4. Build DPoP JWT\n    // -----------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 5. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 6. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop_opa-pub_signed_jwt\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}\n\nconst b64url = s => Buffer.from(typeof s === 'string' ? s : JSON.stringify(s)).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\nconst b64urlBytes = b => Buffer.from(b).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\n\nconst jwk = JSON.parse(pm.environment.get('dpop-agent-pvt-key-json'));\nconst iss = pm.environment.get('dpop_agent-pub-client_id');\nconst aud = pm.environment.get('url') + '/oauth2/' + pm.environment.get('agent-authZ-server-ID') + '/v1/token';\nconst hdr = { alg: 'RS256', kid: jwk.kid, typ: 'JWT' };\nconst now = Math.floor(Date.now()/1000);\nconst pl = { iss, sub: iss, aud, exp: now+60, iat: now, jti: pm.variables.replaceIn('{{$guid}}') };\nconst input = b64url(hdr) + '.' + b64url(pl);\nconst key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);\nconst sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(input));\npm.environment.set('_dpop-opa-pub-token-client-assertion', input + '.' + b64urlBytes(sig));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop_opa-pub_signed_jwt}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "authorization_code"
+            },
+            {
+              "key": "redirect_uri",
+              "value": "{{redirect_uri}}"
+            },
+            {
+              "key": "code",
+              "value": "{{_auth_code}}"
+            },
+            {
+              "key": "code_verifier",
+              "value": "{{code_verifier}}"
+            },
+            {
+              "key": "scope",
+              "value": "{{scope}}"
+            },
+            {
+              "key": "client_assertion_type",
+              "value": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            },
+            {
+              "key": "client_assertion",
+              "value": "{{_dpop-opa-pub-token-client-assertion}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "03 Token with DPoP Nonce",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"_dpop-opa-pub-vault-subject-token\", pm.response.json().id_token);"
+            ]
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\ngenerateDpopJwt();\n\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // ---------------------------------------------------------------\n    // 1. Get keys from environment vars (created in previous scripts)\n    // ---------------------------------------------------------------\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // --------------------------------------------------------\n    // 2. get audience and dpopNonce from environment variables\n    // --------------------------------------------------------\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/' + pm.environment.get('agent-authZ-server-ID') + '/v1/token';\n    dpopNonce = pm.environment.get(\"_dpop-opa-pub-nonce\");\n\n    // ----------------------------------------------------------------------------------\n    // 3. Build DPoP JWT with nonce calim having nonce_dpop returned in the previous step\n    // ----------------------------------------------------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        nonce: dpopNonce,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 4. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 5. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop-opa-pub_signed_jwt_with_nonce\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}\n\nconst b64url = s => Buffer.from(typeof s === 'string' ? s : JSON.stringify(s)).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\nconst b64urlBytes = b => Buffer.from(b).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\n\nconst jwk = JSON.parse(pm.environment.get('dpop-agent-pvt-key-json'));\nconst iss = pm.environment.get('dpop_agent-pub-client_id');\nconst aud = pm.environment.get('url') + '/oauth2/' + pm.environment.get('agent-authZ-server-ID') + '/v1/token';\nconst hdr = { alg: 'RS256', kid: jwk.kid, typ: 'JWT' };\nconst now = Math.floor(Date.now()/1000);\nconst pl = { iss, sub: iss, aud, exp: now+60, iat: now, jti: pm.variables.replaceIn('{{$guid}}') };\nconst input = b64url(hdr) + '.' + b64url(pl);\nconst key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);\nconst sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(input));\npm.environment.set('_dpop-opa-pub-token-client-assertion', input + '.' + b64urlBytes(sig));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop-opa-pub_signed_jwt_with_nonce}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "authorization_code"
+            },
+            {
+              "key": "redirect_uri",
+              "value": "{{redirect_uri}}"
+            },
+            {
+              "key": "code",
+              "value": "{{_auth_code}}"
+            },
+            {
+              "key": "code_verifier",
+              "value": "{{code_verifier}}"
+            },
+            {
+              "key": "scope",
+              "value": "{{scope}}"
+            },
+            {
+              "key": "client_assertion_type",
+              "value": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            },
+            {
+              "key": "client_assertion",
+              "value": "{{_dpop-opa-pub-token-client-assertion}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "04 Get OPA Vaulted Token",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\ngenerateDpopJwt();\n\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // ---------------------------------------------------------------\n    // 1. Get keys from environment vars (created in previous scripts)\n    // ---------------------------------------------------------------\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // --------------------------------------------------------\n    // 2. get audience and dpopNonce from environment variables\n    // --------------------------------------------------------\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/v1/token';\n    // dpopNonce = pm.environment.get(\"_cid-only-dpop-nonce\");\n\n    // ----------------------------------------------------------------------------------\n    // 3. Build DPoP JWT with nonce calim having nonce_dpop returned in the previous step\n    // ----------------------------------------------------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        // nonce: dpopNonce,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 4. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 5. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop-opa-vault-pub_signed_jwt\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}\n\nconst b64url = s => Buffer.from(typeof s === 'string' ? s : JSON.stringify(s)).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\nconst b64urlBytes = b => Buffer.from(b).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\n\nconst jwk = JSON.parse(pm.environment.get('dpop-agent-pvt-key-json'));\nconst iss = pm.environment.get('dpop_agent-pub-client_id');\nconst aud = pm.environment.get('url') + '/oauth2/v1/token';\nconst hdr = { alg: 'RS256', kid: jwk.kid, typ: 'JWT' };\nconst now = Math.floor(Date.now()/1000);\nconst pl = { iss, sub: iss, aud, exp: now+60, iat: now, jti: pm.variables.replaceIn('{{$guid}}') };\nconst input = b64url(hdr) + '.' + b64url(pl);\nconst key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);\nconst sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(input));\npm.environment.set('_dpop-opa-pub-vault-token-client-assertion', input + '.' + b64urlBytes(sig));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Token response with dpop_nonce\", function () {\n    pm.response.to.have.status(400);\n    try {\n        const dpop_nonce = pm.response.headers.get(\"dpop-nonce\");\n        pm.environment.set(\"_dpop-opa-client-secret-only-nonce\", dpop_nonce);\n    } catch (e) {\n        console.log(\"Error parsing response:\", e);\n    }\n});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop-opa-vault-pub_signed_jwt}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:token-exchange"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:okta:params:oauth:token-type:vaulted-secret"
+            },
+            {
+              "key": "subject_token",
+              "value": "{{_dpop-opa-pub-vault-subject-token}}"
+            },
+            {
+              "key": "subject_token_type",
+              "value": "urn:ietf:params:oauth:token-type:id_token"
+            },
+            {
+              "key": "resource",
+              "value": "{{dpop-opa-pub-orn}}"
+            },
+            {
+              "key": "client_assertion_type",
+              "value": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            },
+            {
+              "key": "client_assertion",
+              "value": "{{_dpop-opa-pub-vault-token-client-assertion}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "05 Get OPA Vaulted Token with DPoP Nonce",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\ngenerateDpopJwt();\n\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // ---------------------------------------------------------------\n    // 1. Get keys from environment vars (created in previous scripts)\n    // ---------------------------------------------------------------\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // --------------------------------------------------------\n    // 2. get audience and dpopNonce from environment variables\n    // --------------------------------------------------------\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/v1/token';\n    dpopNonce = pm.environment.get(\"_dpop-opa-client-secret-only-nonce\");\n\n    // ----------------------------------------------------------------------------------\n    // 3. Build DPoP JWT with nonce calim having nonce_dpop returned in the previous step\n    // ----------------------------------------------------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        nonce: dpopNonce,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 4. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 5. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop-opa-pub-vault_signed_jwt_with_nonce\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}\n\nconst b64url = s => Buffer.from(typeof s === 'string' ? s : JSON.stringify(s)).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\nconst b64urlBytes = b => Buffer.from(b).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\n\nconst jwk = JSON.parse(pm.environment.get('dpop-agent-pvt-key-json'));\nconst iss = pm.environment.get('dpop_agent-pub-client_id');\nconst aud = pm.environment.get('url') + '/oauth2/v1/token';\nconst hdr = { alg: 'RS256', kid: jwk.kid, typ: 'JWT' };\nconst now = Math.floor(Date.now()/1000);\nconst pl = { iss, sub: iss, aud, exp: now+60, iat: now, jti: pm.variables.replaceIn('{{$guid}}') };\nconst input = b64url(hdr) + '.' + b64url(pl);\nconst key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);\nconst sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(input));\npm.environment.set('_dpop-opa-pub-vault-token-client-assertion', input + '.' + b64urlBytes(sig));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop-opa-pub-vault_signed_jwt_with_nonce}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:token-exchange"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:okta:params:oauth:token-type:vaulted-secret"
+            },
+            {
+              "key": "subject_token",
+              "value": "{{_dpop-opa-pub-vault-subject-token}}"
+            },
+            {
+              "key": "subject_token_type",
+              "value": "urn:ietf:params:oauth:token-type:id_token"
+            },
+            {
+              "key": "resource",
+              "value": "{{dpop-opa-pub-orn}}"
+            },
+            {
+              "key": "client_assertion_type",
+              "value": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            },
+            {
+              "key": "client_assertion",
+              "value": "{{_dpop-opa-pub-vault-token-client-assertion}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

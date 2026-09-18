@@ -1,0 +1,133 @@
+{
+  "info": {
+    "_postman_id": "d063544b-b998-4541-ab4d-89d9add9d23a",
+    "name": "Atlassian",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "2894294"
+  },
+  "item": [
+    {
+      "name": "Atlassian DCR Registration",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"redirect_uris\": [\n    \"https://oktaforai.oktapreview.com/\"\n  ],\n  \"client_name\": \"Collab Atlassian Test Agent\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://auth.atlassian.com/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3/dcr/register",
+          "protocol": "https",
+          "host": [
+            "auth",
+            "atlassian",
+            "com"
+          ],
+          "path": [
+            "VCeDsk8ZHncYF1g234fKtc4lNipbBhu3",
+            "dcr",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Atlassian Token Call",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+              "type": "text",
+              "uuid": "2f218972-8b0c-46bb-ab38-8b1c25322b1d"
+            },
+            {
+              "key": "client_id",
+              "value": "utuz71Vlpq83V0F8dPYihiL94WqftERW",
+              "type": "text",
+              "uuid": "6f3b3343-60e5-4a9f-9e3c-99dd81af1420"
+            },
+            {
+              "key": "client_secret",
+              "value": "",
+              "type": "text",
+              "uuid": "5e3f583d-288d-4d01-8a1f-17731d08268d"
+            },
+            {
+              "key": "assertion",
+              "value": "",
+              "type": "text",
+              "uuid": "95bc0661-c7f2-4a81-8e49-b8b1d88bc079"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token",
+              "type": "text",
+              "uuid": "5a28c060-21ba-4787-a9bc-965744eae4b9"
+            }
+          ]
+        },
+        "url": {
+          "raw": "https://auth.atlassian.com/oauth/token",
+          "protocol": "https",
+          "host": [
+            "auth",
+            "atlassian",
+            "com"
+          ],
+          "path": [
+            "oauth",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Atlassian Get Jira API",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer ",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://api.atlassian.com/ex/jira/{{cloudId}}/rest/api/3/issue/SCRUM-1",
+          "protocol": "https",
+          "host": [
+            "api",
+            "atlassian",
+            "com"
+          ],
+          "path": [
+            "ex",
+            "jira",
+            "{{cloudId}}",
+            "rest",
+            "api",
+            "3",
+            "issue",
+            "SCRUM-1"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

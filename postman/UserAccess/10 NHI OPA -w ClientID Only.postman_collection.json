@@ -1,0 +1,132 @@
+{
+  "info": {
+    "_postman_id": "9e0a8d2f-8749-4289-ab39-18dfb50c5c96",
+    "name": "10 NHI OPA \\w ClientID Only",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "16313791",
+    "_collection_link": "https://go.postman.co/collection/16313791-9e0a8d2f-8749-4289-ab39-18dfb50c5c96?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "01 Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"_opa-nhi-cid-only-subject-token\", pm.response.json().access_token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "key": "scope",
+              "value": "{{nhi-scope}}"
+            },
+            {
+              "key": "resource",
+              "value": "{{nhi-client-id-only-resource}}"
+            },
+            {
+              "key": "client_id",
+              "value": "{{nhi-client_id}}"
+            },
+            {
+              "key": "client_secret",
+              "value": "{{nhi-client_secret}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "02 Get OPA Vaulted Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:token-exchange"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:okta:params:oauth:token-type:vaulted-secret"
+            },
+            {
+              "key": "subject_token",
+              "value": "{{_opa-nhi-cid-only-subject-token}}"
+            },
+            {
+              "key": "subject_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "key": "resource",
+              "value": "{{opa-cid-only-orn}}"
+            },
+            {
+              "key": "client_id",
+              "value": "{{agent-cid-only-client_id}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
