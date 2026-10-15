@@ -1,0 +1,461 @@
+{
+  "info": {
+    "_postman_id": "ddb6e424-6b3e-48cf-b752-ea086aa9fc59",
+    "name": "34 DPoP NHI XAA \\w ClientID Only",
+    "description": "## DPoP Human-Initiated (HI) Cross-Authorization Access (XAA) — Client ID Only\n\nThis collection demonstrates a **DPoP (Demonstrating Proof of Possession)-protected OAuth 2.0 authorization code flow** for a **Human-Initiated (HI)** scenario using **Cross-Authorization Access (XAA)** with a **Client ID Only** (public client, no client secret) authentication model against an Okta authorization server.\n\n### What this collection covers\n\nThe requests are designed to be executed in sequence and walk through the full end-to-end flow:\n\n| Step | Request | Description |\n|------|---------|-------------|\n| 01 | **Authorize** | Initiates the OAuth 2.0 authorization code flow using PKCE (`S256` code challenge). Redirects the user to the Okta authorization server for authentication. |\n| 02 | **Token** | Exchanges the authorization code for tokens. Sends a DPoP-signed JWT in the `DPoP` header. Expects a `400` response containing a `dpop-nonce` that must be used in the next step. |\n| 03 | **Token with DPoP Nonce** | Retries the token request with the server-issued `dpop-nonce` included in the DPoP proof JWT, completing the token acquisition. |\n| 04 | **IDJAG** | Requests an ID-JAG (Identity JWT for Authorization Grant) token from the XAA authorization server using the access token obtained above, with a fresh DPoP proof. |\n| 05 | **IDJAG with DPoP Nonce** | Retries the IDJAG request with the server-issued `dpop-nonce`, completing the IDJAG token acquisition. |\n| 06 | **Exchange IDJAG** | Performs a JWT Bearer token exchange (`urn:ietf:params:oauth:grant-type:jwt-bearer`) to exchange the IDJAG token for a final access token at the XAA resource authorization server, with a DPoP proof. |\n| 07 | **Exchange IDJAG with DPoP Nonce** | Retries the IDJAG exchange with the server-issued `dpop-nonce`, completing the cross-authorization token exchange. |\n\n### Key characteristics\n\n- **DPoP (RFC 9449):** Every token request includes a dynamically generated DPoP proof JWT signed with an RS256 RSA key pair. The key pair is generated once and cached in environment variables (`_dpop_privatekey`, `_dpop_pubkey`) for reuse across requests.\n- **PKCE:** The authorization request uses `code_challenge_method=S256` to protect the authorization code grant.\n- **Public client (Client ID Only):** No client secret is used. The client authenticates solely via `client_id` (`{{dpop_agent-cid-only-client_id}}`).\n- **Nonce handling:** Steps 02, 04, and 06 intentionally expect a `400` response to retrieve the server-issued `dpop-nonce`, which is then stored in environment variables and used in the subsequent \"with DPoP Nonce\" requests.\n- **Token exchange:** The final steps use the `jwt-bearer` grant type to exchange the IDJAG token for a cross-authorization access token scoped to the resource authorization server (`{{xaa-res-authZ-server-ID}}`).\n\n### Prerequisites\n\nConfigure the following environment variables in the **O4AA-LAB** environment before running this collection:\n\n- `url` — Base URL of the Okta tenant\n- `agent-authZ-server-ID` — Authorization server ID for the agent (initial token endpoint)\n- `xaa-res-authZ-server-ID` — Authorization server ID for the XAA resource server\n- `dpop_agent-cid-only-client_id` — Client ID of the public (Client ID Only) DPoP-enabled application\n- `scope`, `redirect_uri`, `code_challenge`, `code_verifier` — PKCE and scope parameters",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "16313791",
+    "_collection_link": "https://go.postman.co/collection/16313791-ddb6e424-6b3e-48cf-b752-ea086aa9fc59?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "01 Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Token response with dpop_nonce\", function () {\n    pm.response.to.have.status(400);\n    try {\n        const dpop_nonce = pm.response.headers.get(\"dpop-nonce\");\n        pm.environment.set(\"_dpop-xaa-cid-only-nonce\", dpop_nonce);\n    } catch (e) {\n        console.log(\"Error parsing response:\", e);\n    }\n});"
+            ]
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\nconst jsrsasignUrl = \"https://kjur.github.io/jsrsasign/jsrsasign-all-min.js\";\n\n// Load library (cached in globals for performance)\nif (!pm.globals.has(\"jsrsasign_cached\")) {\n    console.log(\"Loading jsrsasign library...\");\n    pm.sendRequest(jsrsasignUrl, function (err, res) {\n        if (err) {\n            console.error(\"Failed to load jsrsasign:\", err);\n            throw new Error(\"Cannot load jsrsasign library\");\n        }\n        pm.globals.set(\"jsrsasign_cached\", res.text());\n        console.log(\"Library loaded successfully\");\n        generateDpopJwt();\n    });\n} else {\n    generateDpopJwt();\n}\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // -----------------------------------------\n    // 1. Generate RSA Key Pair (2048-bit)\n    // -----------------------------------------\n\n    if (!pm.environment.has(\"_dpop_privatekey\")){\n        console.log(\"Generating RSA key pair...\");\n        const keypair = KEYUTIL.generateKeypair(\"RSA\", 2048);\n        const privateKey = keypair.prvKeyObj;\n        const publicKey = keypair.pubKeyObj;\n\n        // -----------------------------------------\n        // 2. Export keys in required formats\n        // -----------------------------------------\n        // Private key in PEM format\n        const privatePem = KEYUTIL.getPEM(privateKey, \"PKCS8PRV\");\n\n        // Public key in JWK format\n        const publicJwk = KEYUTIL.getJWKFromKey(publicKey);\n\n        pm.environment.set(\"_dpop_privatekey\", privatePem);\n        pm.environment.set(\"_dpop_pubkey\", JSON.stringify(publicJwk));   \n    }\n\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // -----------------------------------------\n    // 3. Store keys in environment variables\n    // -----------------------------------------\n\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/' + pm.environment.get('agent-authZ-server-ID') + '/v1/token';\n\n    // -----------------------------------------\n    // 4. Build DPoP JWT\n    // -----------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 5. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 6. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop_xaa-cid-only_signed_jwt\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop_xaa-cid-only_signed_jwt}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "key": "scope",
+              "value": "{{nhi-scope}}"
+            },
+            {
+              "key": "client_id",
+              "value": "{{nhi-dpop-client_id}}"
+            },
+            {
+              "key": "client_secret",
+              "value": "{{nhi-dpop-client_secret}}"
+            },
+            {
+              "key": "resource",
+              "value": "{{nhi-dpop-client-id-only-resource}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "02 Token with DPoP Nonce",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"_dpop-xaa-cid-only-subject-token\", pm.response.json().access_token);"
+            ]
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\ngenerateDpopJwt();\n\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // ---------------------------------------------------------------\n    // 1. Get keys from environment vars (created in previous scripts)\n    // ---------------------------------------------------------------\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // --------------------------------------------------------\n    // 2. get audience and dpopNonce from environment variables\n    // --------------------------------------------------------\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/' + pm.environment.get('agent-authZ-server-ID') + '/v1/token';\n    dpopNonce = pm.environment.get(\"_dpop-xaa-cid-only-nonce\");\n\n    // ----------------------------------------------------------------------------------\n    // 3. Build DPoP JWT with nonce calim having nonce_dpop returned in the previous step\n    // ----------------------------------------------------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        nonce: dpopNonce,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 4. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 5. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop-cid-only_signed_jwt_with_nonce\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop-cid-only_signed_jwt_with_nonce}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "key": "scope",
+              "value": "{{nhi-scope}}"
+            },
+            {
+              "key": "client_id",
+              "value": "{{nhi-dpop-client_id}}"
+            },
+            {
+              "key": "client_secret",
+              "value": "{{nhi-dpop-client_secret}}"
+            },
+            {
+              "key": "resource",
+              "value": "{{nhi-dpop-client-id-only-resource}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "03 IDJAG",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"_xaa-cid-only-idjag-token\", pm.response.json().access_token);\n\npm.test(\"Token response with dpop_nonce\", function () {\n    pm.response.to.have.status(400);\n    try {\n        const dpop_nonce = pm.response.headers.get(\"dpop-nonce\");\n        pm.environment.set(\"_dpop-xaa-idjag-pub-nonce\", dpop_nonce);\n    } catch (e) {\n        console.log(\"Error parsing response:\", e);\n    }\n});"
+            ]
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\ngenerateDpopJwt();\n\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // ---------------------------------------------------------------\n    // 1. Get keys from environment vars (created in previous scripts)\n    // ---------------------------------------------------------------\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // --------------------------------------------------------\n    // 2. get audience and dpopNonce from environment variables\n    // --------------------------------------------------------\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/v1/token';\n    // dpopNonce = pm.environment.get(\"_dpop-cid-only-nonce\");\n\n    // ----------------------------------------------------------------------------------\n    // 3. Build DPoP JWT with nonce calim having nonce_dpop returned in the previous step\n    // ----------------------------------------------------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        // nonce: dpopNonce,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 4. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 5. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop-xaa-idjag-cid-only_signed_jwt\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop-xaa-idjag-cid-only_signed_jwt}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:token-exchange"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:id-jag"
+            },
+            {
+              "key": "subject_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "key": "subject_token",
+              "value": "{{_dpop-xaa-cid-only-subject-token}}"
+            },
+            {
+              "key": "audience",
+              "value": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}"
+            },
+            {
+              "key": "scope",
+              "value": "{{id-jag-scope}}"
+            },
+            {
+              "key": "client_id",
+              "value": "{{dpop_agent-cid-only-client_id}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "04 IDJAG with DPoP Nonce",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"_xaa-cid-only-idjag-token\", pm.response.json().access_token);"
+            ]
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\ngenerateDpopJwt();\n\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // ---------------------------------------------------------------\n    // 1. Get keys from environment vars (created in previous scripts)\n    // ---------------------------------------------------------------\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // --------------------------------------------------------\n    // 2. get audience and dpopNonce from environment variables\n    // --------------------------------------------------------\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/v1/token';\n    dpopNonce = pm.environment.get(\"_dpop-xaa-idjag-pub-nonce\");\n\n    // ----------------------------------------------------------------------------------\n    // 3. Build DPoP JWT with nonce calim having nonce_dpop returned in the previous step\n    // ----------------------------------------------------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        nonce: dpopNonce,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 4. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 5. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop-xaa-idjag-cid-only_signed_jwt_with_nonce\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop-xaa-idjag-cid-only_signed_jwt_with_nonce}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:token-exchange"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:id-jag"
+            },
+            {
+              "key": "subject_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "key": "subject_token",
+              "value": "{{_dpop-xaa-cid-only-subject-token}}"
+            },
+            {
+              "key": "audience",
+              "value": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}"
+            },
+            {
+              "key": "scope",
+              "value": "{{id-jag-scope}}"
+            },
+            {
+              "key": "client_id",
+              "value": "{{dpop_agent-cid-only-client_id}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "05 Exchange IDJAG",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\ngenerateDpopJwt();\n\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // ---------------------------------------------------------------\n    // 1. Get keys from environment vars (created in previous scripts)\n    // ---------------------------------------------------------------\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // --------------------------------------------------------\n    // 2. get audience and dpopNonce from environment variables\n    // --------------------------------------------------------\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/' + pm.environment.get('xaa-res-authZ-server-ID') + '/v1/token';\n\n    // ----------------------------------------------------------------------------------\n    // 3. Build DPoP JWT with nonce calim having nonce_dpop returned in the previous step\n    // ----------------------------------------------------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 4. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 5. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop-xaa-exch-idjag-cid-only_signed_jwt\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Token response with dpop_nonce\", function () {\n    pm.response.to.have.status(400);\n    try {\n        const dpop_nonce = pm.response.headers.get(\"dpop-nonce\");\n        pm.environment.set(\"_dpop-xaa-exch-idjag-pub-nonce\", dpop_nonce);\n    } catch (e) {\n        console.log(\"Error parsing response:\", e);\n    }\n});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop-xaa-exch-idjag-cid-only_signed_jwt}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            },
+            {
+              "key": "assertion",
+              "value": "{{_xaa-cid-only-idjag-token}}"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "key": "client_id",
+              "value": "{{dpop_agent-cid-only-client_id}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{xaa-res-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "06 Exchange IDJAG with DPoP Nonce",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (typeof navigator === 'undefined') {\n    navigator = { appName: 'Postman' };\n}\n\n// ============================================\n// DPoP JWT Generator using RS256\n// ============================================\n\ngenerateDpopJwt();\n\n\nfunction generateDpopJwt() {\n    // Execute the cached library\n    eval(pm.globals.get(\"jsrsasign_cached\"));\n\n    // ---------------------------------------------------------------\n    // 1. Get keys from environment vars (created in previous scripts)\n    // ---------------------------------------------------------------\n    // Private key in PEM format\n    const privatePem = pm.environment.get(\"_dpop_privatekey\")\n\n    // Public key in JWK format\n    const publicJwk = JSON.parse(pm.environment.get(\"_dpop_pubkey\"));\n\n    // Add required JWK fields for DPoP\n    publicJwk.use = \"sig\";\n    publicJwk.alg = \"RS256\";\n\n    // --------------------------------------------------------\n    // 2. get audience and dpopNonce from environment variables\n    // --------------------------------------------------------\n    // jwtAudience = pm.environment.get(\"jwt-audience\");\n    jwtAudience = pm.environment.get('url') + '/oauth2/' + pm.environment.get('xaa-res-authZ-server-ID') + '/v1/token';\n    dpopNonce = pm.environment.get(\"_dpop-xaa-exch-idjag-pub-nonce\");\n\n    // ----------------------------------------------------------------------------------\n    // 3. Build DPoP JWT with nonce calim having nonce_dpop returned in the previous step\n    // ----------------------------------------------------------------------------------\n    // Generate unique JWT ID\n    const jti = KJUR.crypto.Util.getRandomHexOfNbytes(16);\n\n    // Timestamps\n    const now = Math.floor(Date.now() / 1000);\n\n    // JWT Header\n    const header = {\n        alg: \"RS256\",\n        typ: \"dpop+jwt\",\n        jwk: publicJwk\n    };\n\n    // JWT Payload\n    const payload = {\n        jti: jti,\n        htm: pm.request.method,\n        htu: jwtAudience,\n        nonce: dpopNonce,\n        iat: now,\n        exp: now + 300  // 5 minutes expiry\n    };\n\n    // -----------------------------------------\n    // 4. Sign the JWT\n    // -----------------------------------------\n    const signedJwt = KJUR.jws.JWS.sign(\n        \"RS256\",\n        JSON.stringify(header),\n        JSON.stringify(payload),\n        privatePem\n    );\n\n    // -----------------------------------------\n    // 5. Store signed JWT\n    // -----------------------------------------\n    pm.environment.set(\"_dpop-xaa-exch-idjag-cid-only_signed_jwt_with_nonce\", signedJwt);\n\n    // // Log results\n    // console.log(\"=== DPoP JWT Generated Successfully ===\");\n    // console.log(\"Algorithm: RS256\");\n    // console.log(\"JTI:\", jti);\n    // console.log(\"Method:\", pm.request.method);\n    // console.log(\"URI:\", pm.request.url.toString().split('?')[0]);\n    // console.log(\"JWT:\", signedJwt);\n}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": "{{_dpop-xaa-exch-idjag-cid-only_signed_jwt_with_nonce}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            },
+            {
+              "key": "assertion",
+              "value": "{{_xaa-cid-only-idjag-token}}"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "key": "client_id",
+              "value": "{{dpop_agent-cid-only-client_id}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{xaa-res-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

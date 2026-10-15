@@ -1,0 +1,277 @@
+{
+  "info": {
+    "_postman_id": "50baf9c7-9010-4aa1-bf3e-a88f92d146ea",
+    "name": "07 HI XAA \\w ClientID Only",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "16313791",
+    "_collection_link": "https://go.postman.co/collection/16313791-50baf9c7-9010-4aa1-bf3e-a88f92d146ea?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "01 Authorize",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/authorize?client_id={{agent-cid-only-client_id}}&response_type=code&response_mode=query&scope={{scope}}&redirect_uri={{redirect_uri}}&state={{$guid}}&nonce={{$guid}}&code_challenge_method=S256&code_challenge={{code_challenge}}",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "authorize"
+          ],
+          "query": [
+            {
+              "key": "client_id",
+              "value": "{{agent-cid-only-client_id}}"
+            },
+            {
+              "key": "response_type",
+              "value": "code"
+            },
+            {
+              "key": "response_mode",
+              "value": "query"
+            },
+            {
+              "key": "scope",
+              "value": "{{scope}}"
+            },
+            {
+              "key": "redirect_uri",
+              "value": "{{redirect_uri}}"
+            },
+            {
+              "key": "state",
+              "value": "{{$guid}}"
+            },
+            {
+              "key": "nonce",
+              "value": "{{$guid}}"
+            },
+            {
+              "key": "code_challenge_method",
+              "value": "S256"
+            },
+            {
+              "key": "code_challenge",
+              "value": "{{code_challenge}}"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "02 Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.environment.set(\"_xaa-cid-only-subject-token\", pm.response.json().id_token);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "DPoP",
+            "value": ""
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "type": "text",
+              "key": "grant_type",
+              "value": "authorization_code"
+            },
+            {
+              "type": "text",
+              "key": "redirect_uri",
+              "value": "{{redirect_uri}}"
+            },
+            {
+              "type": "text",
+              "key": "code",
+              "value": "{{_auth_code}}"
+            },
+            {
+              "type": "text",
+              "key": "code_verifier",
+              "value": "{{code_verifier}}"
+            },
+            {
+              "type": "text",
+              "key": "client_id",
+              "value": "{{agent-cid-only-client_id}}"
+            },
+            {
+              "type": "text",
+              "key": "scope",
+              "value": "{{scope}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "03 IDJAG",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.environment.set(\"_xaa-cid-only-idjag-token\", pm.response.json().access_token);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "type": "text",
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:token-exchange"
+            },
+            {
+              "type": "text",
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:id-jag"
+            },
+            {
+              "type": "text",
+              "key": "subject_token_type",
+              "value": "urn:ietf:params:oauth:token-type:id_token"
+            },
+            {
+              "type": "text",
+              "key": "subject_token",
+              "value": "{{_xaa-cid-only-subject-token}}"
+            },
+            {
+              "type": "text",
+              "key": "audience",
+              "value": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}"
+            },
+            {
+              "type": "text",
+              "key": "scope",
+              "value": "{{id-jag-scope}}"
+            },
+            {
+              "type": "text",
+              "key": "client_id",
+              "value": "{{agent-cid-only-client_id}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "04 Exchange IDJAG",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "type": "text",
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            },
+            {
+              "type": "text",
+              "key": "assertion",
+              "value": "{{_xaa-cid-only-idjag-token}}"
+            },
+            {
+              "type": "text",
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "type": "text",
+              "key": "client_id",
+              "value": "{{agent-cid-only-client_id}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{xaa-res-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

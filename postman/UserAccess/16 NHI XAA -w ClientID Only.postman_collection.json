@@ -1,0 +1,190 @@
+{
+  "info": {
+    "_postman_id": "38b06162-b3d9-4d05-894f-843d6b310003",
+    "name": "16 NHI XAA \\w ClientID Only",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "16313791",
+    "_collection_link": "https://go.postman.co/collection/16313791-38b06162-b3d9-4d05-894f-843d6b310003?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "01 Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"_xaa-nhi-cid-only-subject-token\", pm.response.json().access_token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "key": "scope",
+              "value": "{{nhi-scope}}"
+            },
+            {
+              "key": "resource",
+              "value": "{{nhi-client-id-only-resource}}"
+            },
+            {
+              "key": "client_id",
+              "value": "{{nhi-client_id}}"
+            },
+            {
+              "key": "client_secret",
+              "value": "{{nhi-client_secret}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "02 IDJAG",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"_xaa-nhi-cid-only-idjag-token\", pm.response.json().access_token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:token-exchange"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:id-jag"
+            },
+            {
+              "key": "subject_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "key": "subject_token",
+              "value": "{{_xaa-nhi-cid-only-subject-token}}"
+            },
+            {
+              "key": "audience",
+              "value": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}"
+            },
+            {
+              "key": "scope",
+              "value": "{{id-jag-scope}}"
+            },
+            {
+              "key": "client_id",
+              "value": "{{agent-cid-only-client_id}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "03 Exchange IDJAG",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            },
+            {
+              "key": "assertion",
+              "value": "{{_xaa-nhi-cid-only-idjag-token}}"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "key": "client_id",
+              "value": "{{agent-cid-only-client_id}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{xaa-res-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

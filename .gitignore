@@ -4,3 +4,7 @@ __pycache__/**/*
 
 # utils.py fetched at runtime by notebooks running in Google Colab
 colabs/utils.py
+.DS_Store
+*priv.json
+*.key
+*.cert

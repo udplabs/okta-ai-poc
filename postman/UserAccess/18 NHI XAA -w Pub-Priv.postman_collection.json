@@ -1,0 +1,227 @@
+{
+  "info": {
+    "_postman_id": "810bda89-a447-419f-8db4-76734b2b47fe",
+    "name": "18 NHI XAA \\w Pub/Priv",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "16313791",
+    "_collection_link": "https://go.postman.co/collection/16313791-810bda89-a447-419f-8db4-76734b2b47fe?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "01 Token",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const b64url = s => Buffer.from(typeof s === 'string' ? s : JSON.stringify(s)).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\nconst b64urlBytes = b => Buffer.from(b).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\n\n  const jwk = JSON.parse(pm.environment.get('agent-pvt-key-json'));\n  const iss = pm.environment.get('agent-pub-client_id');\n  const aud = pm.environment.get('url') + '/oauth2/' + pm.environment.get('agent-authZ-server-ID') + '/v1/token';\n  const hdr = { alg: 'RS256', kid: jwk.kid, typ: 'JWT' };\n  const now = Math.floor(Date.now()/1000);\n  const pl = { iss, sub: iss, aud, exp: now+60, iat: now, jti: pm.variables.replaceIn('{{$guid}}') };\n  const input = b64url(hdr) + '.' + b64url(pl);\n  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);\n  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(input));\n  pm.environment.set('_xaa-pub-token-client-assertion', input + '.' + b64urlBytes(sig));\n"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"_xaa-nhi-pub-subject-token\", pm.response.json().access_token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "key": "scope",
+              "value": "{{nhi-scope}}"
+            },
+            {
+              "key": "resource",
+              "value": "{{nhi-client-id-pub-priv-resource}}"
+            },
+            {
+              "key": "client_id",
+              "value": "{{nhi-client_id}}"
+            },
+            {
+              "key": "client_secret",
+              "value": "{{nhi-client_secret}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{agent-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{agent-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "02 IDJAG",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const b64url = s => Buffer.from(typeof s === 'string' ? s : JSON.stringify(s)).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\nconst b64urlBytes = b => Buffer.from(b).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\n\n  const jwk = JSON.parse(pm.environment.get('agent-pvt-key-json'));\n  const iss = pm.environment.get('agent-pub-client_id');\n    const aud = pm.environment.get('url') + '/oauth2/v1/token';\n  const hdr = { alg: 'RS256', kid: jwk.kid, typ: 'JWT' };\n  const now = Math.floor(Date.now()/1000);\n  const pl = { iss, sub: iss, aud, exp: now+60, iat: now, jti: pm.variables.replaceIn('{{$guid}}') };\n  const input = b64url(hdr) + '.' + b64url(pl);\n  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);\n  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(input));\n  pm.environment.set('_xaa-nhi-pub-idjag-client-assertion', input + '.' + b64urlBytes(sig));\n"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"_xaa-nhi-pub-idjag-token\", pm.response.json().access_token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:token-exchange"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:id-jag"
+            },
+            {
+              "key": "subject_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "key": "subject_token",
+              "value": "{{_xaa-nhi-pub-subject-token}}"
+            },
+            {
+              "key": "audience",
+              "value": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}"
+            },
+            {
+              "key": "scope",
+              "value": "{{id-jag-scope}}"
+            },
+            {
+              "key": "client_assertion_type",
+              "value": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            },
+            {
+              "key": "client_assertion",
+              "value": "{{_xaa-nhi-pub-idjag-client-assertion}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "03 Exchange IDJAG",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const b64url = s => Buffer.from(typeof s === 'string' ? s : JSON.stringify(s)).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\nconst b64urlBytes = b => Buffer.from(b).toString('base64').replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');\n\n  const jwk = JSON.parse(pm.environment.get('agent-pvt-key-json'));\n  const iss = pm.environment.get('agent-pub-client_id');\n  const aud = pm.environment.get('url') + '/oauth2/' + pm.environment.get('xaa-res-authZ-server-ID') + '/v1/token';\n  const hdr = { alg: 'RS256', kid: jwk.kid, typ: 'JWT' };\n  const now = Math.floor(Date.now()/1000);\n  const pl = { iss, sub: iss, aud, exp: now+60, iat: now, jti: pm.variables.replaceIn('{{$guid}}') };\n  const input = b64url(hdr) + '.' + b64url(pl);\n  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);\n  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(input));\n  pm.environment.set('_xaa-nhi-pub-idjag-exchange-client-assertion', input + '.' + b64urlBytes(sig));\n"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            },
+            {
+              "key": "assertion",
+              "value": "{{_xaa-nhi-pub-idjag-token}}"
+            },
+            {
+              "key": "requested_token_type",
+              "value": "urn:ietf:params:oauth:token-type:access_token"
+            },
+            {
+              "key": "client_assertion_type",
+              "value": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            },
+            {
+              "key": "client_assertion",
+              "value": "{{_xaa-nhi-pub-idjag-exchange-client-assertion}}"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{url}}/oauth2/{{xaa-res-authZ-server-ID}}/v1/token",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "oauth2",
+            "{{xaa-res-authZ-server-ID}}",
+            "v1",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
