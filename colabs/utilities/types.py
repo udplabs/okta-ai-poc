@@ -158,7 +158,7 @@ class AIAgentSignOnProvider(TypedDict):
 
 
 class AIAgentProfile(TypedDict):
-    description: NotRequired[str]
+    description: NotRequired[str | None]
     name: str | None
     externalId: NotRequired[str]
     platform: NotRequired[
@@ -351,11 +351,7 @@ class ResourceConnectionA2AResource(TypedDict):
 
 
 class ResourceConnectionsResponse(TypedDict):
-    data: list[
-        A2AResourceConnection
-        | AppInstanceResourceConnection
-        | AuthServerResourceConnection
-    ]
+    data: list[A2AResourceConnection | AppInstanceResourceConnection | AuthServerResourceConnection]
 
 
 class A2AResourceConnection(ResourceConnection):

@@ -18,21 +18,19 @@ from IPython.display import HTML, display
 TYPES_URL = "https://raw.githubusercontent.com/udplabs/okta-ai-poc/refs/heads/feature%2Fa2a/colabs/utilities/types.py"
 
 
-def load_types(url: str = TYPES_URL) -> ModuleType:
-    """Load shared notebook types locally, or download them in hosted notebooks."""
-    types_path = Path(__file__).resolve().parent / "colabs" / "utilities" / "types.py"
-    if not types_path.is_file():
+def _load_notebook_module(module_name: str, filename: str, url: str, label: str) -> ModuleType:
+    module_path = Path(__file__).resolve().parent / "colabs" / "utilities" / filename
+    if not module_path.is_file():
         import requests
 
         response = requests.get(url, timeout=15)
         response.raise_for_status()
-        types_path.parent.mkdir(parents=True, exist_ok=True)
-        types_path.write_text(response.text, encoding="utf-8")
+        module_path.parent.mkdir(parents=True, exist_ok=True)
+        module_path.write_text(response.text, encoding="utf-8")
 
-    module_name = "_okta_notebook_types"
-    spec = importlib.util.spec_from_file_location(module_name, types_path)
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Unable to load notebook types from {types_path}")
+        raise ImportError(f"Unable to load notebook {label} from {module_path}")
     module = importlib.util.module_from_spec(spec)
     previous_module = sys.modules.get(module_name)
     sys.modules[module_name] = module
@@ -45,6 +43,11 @@ def load_types(url: str = TYPES_URL) -> ModuleType:
             sys.modules[module_name] = previous_module
         raise
     return module
+
+
+def load_types(url: str = TYPES_URL) -> ModuleType:
+    """Load shared notebook types locally, or download them in hosted notebooks."""
+    return _load_notebook_module("_okta_notebook_types", "types.py", url, "types")
 
 
 if TYPE_CHECKING:
@@ -68,20 +71,14 @@ class OktaApiError(Exception):
             self.error_code: str | None = error_body.get("errorCode")
             self.error_summary: str | None = error_body.get("errorSummary")
             causes = error_body.get("errorCauses", [])
-            self.error_causes: list[dict[str, Any]] = (
-                [cause for cause in causes if isinstance(cause, dict)]
-                if isinstance(causes, list)
-                else []
-            )
+            self.error_causes: list[dict[str, Any]] = [cause for cause in causes if isinstance(cause, dict)] if isinstance(causes, list) else []
         else:
             self.error_code = None
             self.error_summary = None
             self.error_causes = []
 
         detail = self.error_summary or response.reason or "Unknown API error"
-        super().__init__(
-            f"\n   Okta API request failed with HTTP {response.status_code}: {detail}\n   errorCode: {self.error_code}\n   errorCauses: {self.error_causes}\n"
-        )
+        super().__init__(f"\n   Okta API request failed with HTTP {response.status_code}: {detail}\n   errorCode: {self.error_code}\n   errorCauses: {self.error_causes}\n")
 
 
 def okta_request(
@@ -109,15 +106,7 @@ def okta_request(
         domain = okta_domain.rstrip("/")
         parsed_domain = urlparse(domain)
 
-        if (
-            parsed_domain.scheme != "https"
-            or not parsed_domain.hostname
-            or parsed_domain.username
-            or parsed_domain.password
-            or parsed_domain.path
-            or parsed_domain.query
-            or parsed_domain.fragment
-        ):
+        if parsed_domain.scheme != "https" or not parsed_domain.hostname or parsed_domain.username or parsed_domain.password or parsed_domain.path or parsed_domain.query or parsed_domain.fragment:
             raise ValueError("okta_domain must be an HTTPS org URL without a path.")
 
         url = f"{domain}{path}"
@@ -258,17 +247,13 @@ def debug_print(label: str, data: Any) -> None:
     if isinstance(data, str):
         # Strip whitespace to check if it looks like JSON
         stripped = data.strip()
-        if (stripped.startswith("{") and stripped.endswith("}")) or (
-            stripped.startswith("[") and stripped.endswith("]")
-        ):
+        if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
             try:
                 json_data = json.loads(stripped)
                 # Success! Print parsed JSON beautifully
                 pretty_json = json.dumps(json_data, indent=4)
                 # Indent every line for cleaner look
-                _builtin_print(
-                    "\n".join(f"{indent}{line}" for line in pretty_json.splitlines())
-                )
+                _builtin_print("\n".join(f"{indent}{line}" for line in pretty_json.splitlines()))
                 return
             except (ValueError, TypeError):
                 pass  # Not valid JSON after all, move to fallback
@@ -277,12 +262,7 @@ def debug_print(label: str, data: Any) -> None:
         if _is_url_encoded(stripped):
             parsed = parse_qs(stripped)
             flat = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
-            _builtin_print(
-                "\n".join(
-                    f"{indent}{line}"
-                    for line in json.dumps(flat, indent=4).splitlines()
-                )
-            )
+            _builtin_print("\n".join(f"{indent}{line}" for line in json.dumps(flat, indent=4).splitlines()))
             return
 
         # Regular string fallback
@@ -311,10 +291,7 @@ class Debugger(OAuth2ClientListener):
         debug_print(f"OAuth Response Status", response.status_code)
         debug_print(f"OAuth Response Body", response.result)
 
-        if (
-            response.status_code == 400
-            and response.result.get("errorCode") == "invalid_client"
-        ):
+        if response.status_code == 400 and response.result.get("errorCode") == "invalid_client":
             debug_print("REMINDER", f"💡 Don't forget to activate your agent!")
 
     def did_send_error(self, client, request, error):
@@ -324,19 +301,13 @@ class Debugger(OAuth2ClientListener):
         debug_print(f"OAuth Request -> Subject Token Type: {subject_token_type}", None)
 
     def did_exchange_token_for_id_jag(self, flow, subject_token_type, id_token):
-        debug_print(
-            f"OAuth Response -> Subject Token Type: {subject_token_type}", id_token
-        )
+        debug_print(f"OAuth Response -> Subject Token Type: {subject_token_type}", id_token)
 
     def will_exchange_id_jag_for_access_token(self, flow, subject_token_type):
         debug_print(f"OAuth Request -> Subject Token Type: {subject_token_type}", None)
 
-    def did_exchange_id_jag_for_access_token(
-        self, flow, subject_token_type, access_token
-    ):
-        debug_print(
-            f"OAuth Response -> Subject Token Type: {subject_token_type}", access_token
-        )
+    def did_exchange_id_jag_for_access_token(self, flow, subject_token_type, access_token):
+        debug_print(f"OAuth Response -> Subject Token Type: {subject_token_type}", access_token)
 
 
 REQUIRED_KEYS = [
@@ -389,9 +360,7 @@ def validate_config(config: dict, notebook_type: str = "xaa"):
 
             required_keys.append("PRINCIPAL_PRIVATE_JWK")
         else:
-            print(
-                "  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!"
-            )
+            print("  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!")
 
             required_keys.append("PRINCIPAL_SECRET")
 
@@ -403,17 +372,13 @@ def validate_config(config: dict, notebook_type: str = "xaa"):
         if not config.get("CLIENT_SECRET"):
             required_keys.append("CLIENT_PRIVATE_JWK")
         else:
-            print(
-                "  ⚠️ CLIENT configured for client secret. This is not a recommended method of authentication!"
-            )
+            print("  ⚠️ CLIENT configured for client secret. This is not a recommended method of authentication!")
             required_keys.append("CLIENT_SECRET")
 
         if not config.get("PRINCIPAL_SECRET"):
             required_keys.append("PRINCIPAL_PRIVATE_JWK")
         else:
-            print(
-                "  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!"
-            )
+            print("  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!")
             required_keys.append("PRINCIPAL_SECRET")
 
     elif _notebook_type == NotebookType.A2A:
@@ -437,18 +402,14 @@ def validate_config(config: dict, notebook_type: str = "xaa"):
         if "CLIENT_SECRET" not in config or not config.get("CLIENT_SECRET"):
             required_keys.append("CLIENT_PRIVATE_JWK")
         else:
-            print(
-                "  ⚠️ CLIENT configured for client secret. This is not a recommended method of authentication!"
-            )
+            print("  ⚠️ CLIENT configured for client secret. This is not a recommended method of authentication!")
             required_keys.append("CLIENT_SECRET")
 
         if "PRINCIPAL_A_SECRET" not in config or not config.get("PRINCIPAL_A_SECRET"):
 
             required_keys.append("PRINCIPAL_A_PRIVATE_JWK")
         else:
-            print(
-                "  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!"
-            )
+            print("  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!")
 
             required_keys.append("PRINCIPAL_A_SECRET")
 
@@ -456,9 +417,7 @@ def validate_config(config: dict, notebook_type: str = "xaa"):
 
             required_keys.append("PRINCIPAL_B_PRIVATE_JWK")
         else:
-            print(
-                "  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!"
-            )
+            print("  ⚠️ PRINCIPAL configured for client secret. This is not a recommended method of authentication!")
 
             required_keys.append("PRINCIPAL_B_SECRET")
 
@@ -479,24 +438,14 @@ def validate_config(config: dict, notebook_type: str = "xaa"):
             raise ValueError(f"{key} must be a dictionary containing at least a 'kid'")
 
         # Validate OKTA_DOMAIN format
-        okta_domain_regex = (
-            r"^https:\/\/[a-zA-Z0-9-]+\.(okta|oktapreview|okta-emea)\.com$"
-        )
+        okta_domain_regex = r"^https:\/\/[a-zA-Z0-9-]+\.(okta|oktapreview|okta-emea)\.com$"
 
         if key == "OKTA_DOMAIN":
             if not isinstance(value, str) or not re.match(okta_domain_regex, value):
-                raise ValueError(
-                    f"Invalid OKTA_DOMAIN: '{value}'. "
-                    "Expected format: 'https://<your-domain>.<okta|oktapreview|okta-emea>.com'"
-                )
+                raise ValueError(f"Invalid OKTA_DOMAIN: '{value}'. " "Expected format: 'https://<your-domain>.<okta|oktapreview|okta-emea>.com'")
 
-        elif (
-            key in KNOWN_URL_KEYS or key.endswith(("_URI", "_URL"))
-        ) and not _is_valid_url(value):
-            raise ValueError(
-                f"Invalid URL for configuration key '{key}': '{value}'. "
-                "Expected a valid HTTP/HTTPS URL (e.g., 'https://...')"
-            )
+        elif (key in KNOWN_URL_KEYS or key.endswith(("_URI", "_URL"))) and not _is_valid_url(value):
+            raise ValueError(f"Invalid URL for configuration key '{key}': '{value}'. " "Expected a valid HTTP/HTTPS URL (e.g., 'https://...')")
 
         if key not in config or not value:
             raise ValueError(f"Missing required configuration key: {key}")
@@ -513,18 +462,14 @@ def _auth_method(private_jwk: dict | None, client_secret: str | None) -> str:
         return "⚠️ NONE — configure a JWK or secret"
 
 
-def a2a_config_out(
-    config: dict, header: str = "✅ All configuration variables validated successfully!"
-) -> None:
+def a2a_config_out(config: dict, header: str = "✅ All configuration variables validated successfully!") -> None:
     """
     Outputs the A2A configuration in a structured format to remove unnecessary code from the learning notebook.
     """
     print(f"\n{header}")
 
     print("Delegation chain:")
-    print(
-        f"   User → {config.get('CLIENT_ID') or '❓'} (Client App) → {config.get('PRINCIPAL_A_ID') or '❓'} (Agent A) → {config.get('PRINCIPAL_B_ID') or '❓'} (Agent B) → {config.get('RESOURCE_SERVER_AUDIENCE') or '❓'}\n"
-    )
+    print(f"   User → {config.get('CLIENT_ID') or '❓'} (Client App) → {config.get('PRINCIPAL_A_ID') or '❓'} (Agent A) → {config.get('PRINCIPAL_B_ID') or '❓'} (Agent B) → {config.get('RESOURCE_SERVER_AUDIENCE') or '❓'}\n")
 
     print(f"Okta Domain: {config.get('OKTA_DOMAIN')}")
 
@@ -532,27 +477,21 @@ def a2a_config_out(
     print(f"   Client ID:  {config.get('CLIENT_ID')}")
     print(f"   Issuer:     {config.get('DOMAIN_A_ISSUER')}")
     print(f"   Scopes:     {config.get('CLIENT_SCOPES')}")
-    print(
-        f"   Auth:       {_auth_method(config.get('CLIENT_PRIVATE_JWK'), config.get('CLIENT_SECRET'))}\n"
-    )
+    print(f"   Auth:       {_auth_method(config.get('CLIENT_PRIVATE_JWK'), config.get('CLIENT_SECRET'))}\n")
 
     print("Agent A  (acting on behalf of the user)")
     print(f"   Principal:  {config.get('PRINCIPAL_A_ID')}")
     print(f"   Issuer:     {config.get('DOMAIN_A_ISSUER')}")
     print(f"   Audience:   {config.get('PRINCIPAL_A_RESOURCE_URI')}")
     print(f"   Scopes:     {config.get('PRINCIPAL_A_SCOPES')}")
-    print(
-        f"   Auth:       {_auth_method(config.get('PRINCIPAL_A_PRIVATE_JWK'), config.get('PRINCIPAL_A_SECRET'))}\n"
-    )
+    print(f"   Auth:       {_auth_method(config.get('PRINCIPAL_A_PRIVATE_JWK'), config.get('PRINCIPAL_A_SECRET'))}\n")
 
     print("Agent B  (acting on behalf of Agent A)")
     print(f"   Principal:  {config.get('PRINCIPAL_B_ID')}")
     print(f"   Issuer:     {config.get('DOMAIN_B_ISSUER')}")
     print(f"   Audience:   {config.get('PRINCIPAL_B_RESOURCE_URI')}")
     print(f"   Scopes:     {config.get('PRINCIPAL_B_SCOPES')}")
-    print(
-        f"   Auth:       {_auth_method(config.get('PRINCIPAL_B_PRIVATE_JWK'), config.get('PRINCIPAL_B_SECRET'))}\n"
-    )
+    print(f"   Auth:       {_auth_method(config.get('PRINCIPAL_B_PRIVATE_JWK'), config.get('PRINCIPAL_B_SECRET'))}\n")
 
     print("Resource")
     print(f"   Issuer:     {config.get('RESOURCE_ISSUER')}")
@@ -607,11 +546,7 @@ def _format_claim(claim: str, value: Any) -> str:
         if claim == "iat":
             return stamp
 
-        return (
-            f"{stamp}  ·  {remaining // 60}m {remaining % 60}s remaining"
-            if remaining > 0
-            else f"{stamp}  ·  EXPIRED"
-        )
+        return f"{stamp}  ·  {remaining // 60}m {remaining % 60}s remaining" if remaining > 0 else f"{stamp}  ·  EXPIRED"
 
     if isinstance(value, (list, tuple)):
         return " ".join(str(v) for v in value)
@@ -643,9 +578,7 @@ def print_claims(
     for claim in present:
         output = f"   {labels[claim].ljust(width)}   {_format_claim(claim, claims.get(claim))}"
         if helper_text and claim in helper_text:
-            print(
-                f"{output}{_HELPER_TEXT.get('delimiter', '      ⬅️ ')}{helper_text[claim]}"
-            )
+            print(f"{output}{_HELPER_TEXT.get('delimiter', '      ⬅️ ')}{helper_text[claim]}")
         else:
             print(output)
 
@@ -682,11 +615,7 @@ def token_exchange_out(
         label = _TOKEN_LABELS[name].ljust(width)
 
         if not value:
-            hint = (
-                "   (request the 'offline_access' scope to receive one)"
-                if name == "refresh_token"
-                else ""
-            )
+            hint = "   (request the 'offline_access' scope to receive one)" if name == "refresh_token" else ""
             print(f"   ❌ {label}   not returned{hint}")
         elif name == "refresh_token":
             print(f"   ✅ {label}   {value[:24]}…")
@@ -697,9 +626,7 @@ def token_exchange_out(
     focus_token = returned[focus]
 
     if not focus_token:
-        print(
-            f"\n⚠️ No {focus_label.lower()} was returned, so the next step has nothing to exchange."
-        )
+        print(f"\n⚠️ No {focus_label.lower()} was returned, so the next step has nothing to exchange.")
         return
 
     decoded = jwt.decode(focus_token, options={"verify_signature": False})
@@ -713,17 +640,13 @@ def token_exchange_out(
 
     if expected_issuer:
         if decoded.get("iss") == expected_issuer:
-            print(
-                f"\n✅ Issued by the expected authorization server: {expected_issuer}"
-            )
+            print(f"\n✅ Issued by the expected authorization server: {expected_issuer}")
         else:
             print(f"\n⚠️ Unexpected issuer: {decoded.get('iss')}")
             print(f"   Expected: {expected_issuer}")
 
 
-def config_out(
-    config: dict, header: str = "✅ All configuration variables validated successfully!"
-) -> None:
+def config_out(config: dict, header: str = "✅ All configuration variables validated successfully!") -> None:
     """
     Outputs the standard configuration in a structured format to remove unnecessary code from the learning notebook.
     """
@@ -733,9 +656,7 @@ def config_out(
     is_xaa = config.get("CLIENT_ID") is not None
 
     print("Delegation chain:")
-    print(
-        f"   User → {(config.get('CLIENT_ID') or '❓') + ' (Client App) → ' if is_xaa else ''}{config.get('PRINCIPAL_ID') or '❓'} (Agent) → {config.get('RESOURCE_SERVER_AUDIENCE') or '❓'}\n"
-    )
+    print(f"   User → {(config.get('CLIENT_ID') or '❓') + ' (Client App) → ' if is_xaa else ''}{config.get('PRINCIPAL_ID') or '❓'} (Agent) → {config.get('RESOURCE_SERVER_AUDIENCE') or '❓'}\n")
 
     print(f"Okta Domain: {config.get('OKTA_DOMAIN')}")
 
@@ -744,20 +665,14 @@ def config_out(
         print(f"   Client ID:  {config.get('CLIENT_ID')}")
         print(f"   Issuer:     {config.get('CLIENT_ISSUER')}")
         print(f"   Scopes:     {config.get('CLIENT_SCOPES')}")
-        print(
-            f"   Auth:       {_auth_method(config.get('CLIENT_PRIVATE_JWK'), config.get('CLIENT_SECRET'))}\n"
-        )
+        print(f"   Auth:       {_auth_method(config.get('CLIENT_PRIVATE_JWK'), config.get('CLIENT_SECRET'))}\n")
 
     print("Agent (acting on behalf of the user)")
     print(f"   Principal:  {config.get('PRINCIPAL_ID')}")
-    print(
-        f"   Issuer:     {config.get('CLIENT_ISSUER', config.get('PRINCIPAL_ISSUER'))}"
-    )
+    print(f"   Issuer:     {config.get('CLIENT_ISSUER', config.get('PRINCIPAL_ISSUER'))}")
     print(f"   Audience:   {config.get('PRINCIPAL_RESOURCE_URI')}")
     print(f"   Scopes:     {config.get('PRINCIPAL_SCOPES')}")
-    print(
-        f"   Auth:       {_auth_method(config.get('PRINCIPAL_PRIVATE_JWK'), config.get('PRINCIPAL_SECRET'))}\n"
-    )
+    print(f"   Auth:       {_auth_method(config.get('PRINCIPAL_PRIVATE_JWK'), config.get('PRINCIPAL_SECRET'))}\n")
 
     print("Resource")
     print(f"   Issuer:     {config.get('RESOURCE_ISSUER')}")
