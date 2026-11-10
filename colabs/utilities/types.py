@@ -350,10 +350,6 @@ class ResourceConnectionA2AResource(TypedDict):
     _links: ResourceAuthorizationServerLinks
 
 
-class ResourceConnectionsResponse(TypedDict):
-    data: list[A2AResourceConnection | AppInstanceResourceConnection | AuthServerResourceConnection]
-
-
 class A2AResourceConnection(ResourceConnection):
     authorizationServer: ResourceConnectionAuthorizationServer
     connectionType: Literal["IDENTITY_ASSERTION_A2A_SERVER"]
@@ -374,3 +370,7 @@ class AppInstanceResourceConnection(ResourceConnection):
 class AuthServerResourceConnection(ResourceConnection):
     connectionType: Literal["IDENTITY_ASSERTION_CUSTOM_AS"]
     authorizationServer: ResourceConnectionAuthorizationServer
+
+
+class ResourceConnectionsResponse(TypedDict):
+    data: list[A2AResourceConnection | AppInstanceResourceConnection | AuthServerResourceConnection]
