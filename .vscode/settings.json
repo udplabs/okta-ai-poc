@@ -1,0 +1,10 @@
+{
+	"python.analysis.formatOnTypeStyle": "black",
+	"[python]": {
+		"editor.defaultFormatter": "ms-python.black-formatter",
+		"editor.codeActionsOnSave": {
+			"source.organizeImports": "explicit"
+		}
+	},
+	"black-formatter.args": ["--line-length", "9999"]
+}
